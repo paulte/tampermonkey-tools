@@ -21,7 +21,10 @@ EOF
 }
 
 checkargs() {
-	if [[ $# -ne 1 ]]; then
+	if [[ $# -eq 0 ]]; then
+		echo "OK: Defaulting to --patch - will increment the minor patch version (v1.2.3 -> v1.2.4)"
+		set -- --patch
+	elif [[ $# -ne 1 ]]; then
 		show_help
 		exit 1
 	fi
@@ -35,6 +38,7 @@ checkargs() {
 		exit 1
 		;;
 	esac
+	echo "OK.  Bumping $BUMP"
 }
 
 detectprojecttype() {
@@ -56,9 +60,11 @@ gitmustbecleanordie() {
 		git status --short
 		exit 1
 	fi
+	echo "OK.  Git working tree is clean and on main."
 }
 
 refreshgit() {
+	echo "Refreshing git repository..."
 	git pull --ff-only
 	git fetch --tags --prune
 }
@@ -91,6 +97,8 @@ findlatesttag() {
 		echo "ERROR: Invalid latest release tag: $LATEST"
 		exit 1
 	fi
+
+	echo "Latest release tag: $LATEST"
 
 	MAJOR="${BASH_REMATCH[1]}"
 	MINOR="${BASH_REMATCH[2]}"
@@ -136,6 +144,7 @@ evaluatenextversion() {
 		echo "ERROR: Tag already exists remotely"
 		exit 1
 	fi
+	echo "OK.  Tag $RELEASE does not exist locally or remotely."
 }
 
 finduserscript() {
@@ -179,6 +188,7 @@ createdistversion() {
     }
     { print }
     ' >"${SHORTSRCFILENAME}"
+	echo "Updated distribution version: ${SHORTSRCFILENAME}"
 }
 
 updatepackagejson() {
@@ -220,10 +230,25 @@ createtagandpush() {
 	echo "Released $RELEASE"
 }
 
+dieifinsubrepo() {
+	if [ -n "$(git rev-parse --show-superproject-working-tree 2>/dev/null)" ]; then
+		cat <<-EOF
+			ERROR: This script cannot be run from a git submodule
+
+			If you want to tag the submodule, please check out the submodule
+			separately and run this script from there."
+		EOF
+		exit 1
+	else
+		echo "OK.  Not in a git submodule."
+	fi
+}
+
 REPOROOT=$(git rev-parse --show-toplevel)
 cd "$REPOROOT"
 
 checkargs "$@"
+dieifinsubrepo
 detectprojecttype
 gitmustbecleanordie
 refreshgit
