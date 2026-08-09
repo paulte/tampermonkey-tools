@@ -5,36 +5,17 @@
 
 # Purpose
 
-Common tools to be used by all tampermonkey repos
+Shared tooling for developing and releasing Tampermonkey userscripts.
 
-Currently `scripts/createrelease.sh`
+This repository is intended to be included as a git submodule by userscript
+repositories.
 
-# Development and testing
+## Usage
 
-Testing is present in a number of places
-
-- pre-commit will check formatting, linting, and spelling before allowing a commit to be made
-- CI will run the same precommit tests on any commit via github actions
-
-In the background, github actions will perform the following:
-
-- codeql will perform automated security analysis of the javascript code
-- dependabot will monitor project dependencies and github actions for available updates
-
-# Release process
-
-Run one of the following depending on whether you want to bump he major, minor or patch version
+From a userscript repository:
 
 ```bash
-scripts/create-release.sh  ( --major | --minor | --patch )
+tools/tampermonkey-tools/scripts/create-release.sh  ( --major | --minor | --patch )
+
+will create a new tag and releast at the next available version
 ```
-
-By default, `scripts/create-release.sh --patch` should be used
-
-This process will perform a few tasks:
-
-- Validate local git is up-to-date, on main and clean
-- Run `pre-commit` and `npm run test` to ensure that the code is in a good state
-- Create a new git tag
-- Create a new release for the tag
-- Push the tag to github
