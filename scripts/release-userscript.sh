@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_TYPE="generic"
+
 show_help() {
   cat <<EOF
 Usage:
@@ -35,8 +37,15 @@ checkargs() {
   esac
 }
 
-gitmustbecleanordie() {
+detectprojecttype() {
+  if git ls-files | grep -qE '^src/.*\.user\.js$'; then
+    PROJECT_TYPE="userscript"
+  fi
 
+  echo "Project type: ${PROJECT_TYPE}"
+}
+
+gitmustbecleanordie() {
   if [[ "$(git branch --show-current)" != "main" ]]; then
     echo "ERROR: Not on main"
     exit 1
@@ -55,20 +64,18 @@ refreshgit() {
 }
 
 performtests() {
-  if ! command -v pre-commit &>/dev/null; then
-    echo "pre-commit is not installed. Please install it to run tests."
-    exit 1
+  if command -v pre-commit &>/dev/null; then
+    pre-commit run --all-files --show-diff-on-failure
+  else
+    echo "pre-commit not installed - skipping"
   fi
-
-  if ! command -v npm &>/dev/null; then
-    echo "npm is not installed. Please install it to run tests."
-    exit 1
-  fi
-
-  pre-commit run --all-files --show-diff-on-failure
 
   if [[ -f package.json ]]; then
-    npm test
+    if command -v npm &>/dev/null; then
+      npm test
+    else
+      echo "npm not installed - skipping npm test"
+    fi
   fi
 }
 
@@ -129,38 +136,6 @@ evaluatenextversion() {
     echo "ERROR: Tag already exists remotely"
     exit 1
   fi
-
-}
-
-createdistversion() {
-  DSTAMP=$(date "+%Y-%m-%dT%H:%M:%S%z")
-  RELEASENUMBER="${RELEASE#v}"
-  grep -Ev '^\/\/.*@(version|released)' <"${SRCFILENAME}" |
-    awk -v release="$RELEASENUMBER" -v dstamp="$DSTAMP" '
-    /\/\/ @name[[:space:]]/ {
-    print
-    print "// @version      " release
-    print "// @released     " dstamp
-    next
-    }
-    { print } ' >"${SHORTSRCFILENAME}"
-}
-
-createtagandpush() {
-  git add "${SHORTSRCFILENAME}"
-  [[ -f package.json ]] && git add package.json
-  [[ -f package-lock.json ]] && git add package-lock.json
-
-  git commit -m "Release ${RELEASE}"
-  git push origin main
-  git tag -a "$RELEASE" -m "Release $RELEASE"
-  git push origin "$RELEASE" || echo "Tag already exists remotely"
-  gh release create "$RELEASE" "${SHORTSRCFILENAME}" --title "$RELEASE" --notes "Release $RELEASE"
-  echo "Released $RELEASE"
-}
-
-updatepackagejson() {
-  npm version "$RELEASENUMBER" --no-git-tag-version
 }
 
 finduserscript() {
@@ -176,8 +151,6 @@ finduserscript() {
   if [[ $(echo "$files" | wc -l | tr -d ' ') -ne 1 ]]; then
     echo "ERROR: Multiple userscripts found:"
     echo "$files"
-    echo
-    echo "Set SRCFILENAME explicitly in release configuration."
     exit 1
   fi
 
@@ -189,19 +162,75 @@ finduserscript() {
     exit 1
   }
 
-  echo "Using userscript: $SRCFILENAME and creating dist version: ${SHORTSRCFILENAME}"
+  echo "Using userscript: ${SRCFILENAME}"
 }
+
+createdistversion() {
+  DSTAMP=$(date "+%Y-%m-%dT%H:%M:%S%z")
+  RELEASENUMBER="${RELEASE#v}"
+
+  grep -Ev '^//.*@(version|released)' "${SRCFILENAME}" |
+    awk -v release="$RELEASENUMBER" -v dstamp="$DSTAMP" '
+    /\/\/ @name[[:space:]]/ {
+      print
+      print "// @version      " release
+      print "// @released     " dstamp
+      next
+    }
+    { print }
+    ' > "${SHORTSRCFILENAME}"
+}
+
+updatepackagejson() {
+  if [[ -f package.json ]]; then
+    npm version "${RELEASE#v}" --no-git-tag-version
+  fi
+}
+
+prepare_release() {
+  if [[ "$PROJECT_TYPE" == "userscript" ]]; then
+    finduserscript
+    createdistversion
+    updatepackagejson
+  fi
+}
+
+createtagandpush() {
+  git add -A
+
+  git commit -m "Release ${RELEASE}"
+
+  git push origin main
+
+  git tag -a "$RELEASE" -m "Release $RELEASE"
+
+  git push origin "$RELEASE"
+
+  if [[ "$PROJECT_TYPE" == "userscript" ]]; then
+    gh release create "$RELEASE" \
+      "${SHORTSRCFILENAME}" \
+      --title "$RELEASE" \
+      --notes "Release $RELEASE"
+  else
+    gh release create "$RELEASE" \
+      --title "$RELEASE" \
+      --notes "Release $RELEASE"
+  fi
+
+  echo "Released $RELEASE"
+}
+
 
 REPOROOT=$(git rev-parse --show-toplevel)
 cd "$REPOROOT"
+
 checkargs "$@"
-finduserscript
+detectprojecttype
 gitmustbecleanordie
 refreshgit
 performtests
 gitmustbecleanordie
 findlatesttag
 evaluatenextversion
-createdistversion
-updatepackagejson
+prepare_release
 createtagandpush
